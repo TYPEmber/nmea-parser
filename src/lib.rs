@@ -174,9 +174,20 @@ pub trait LatLon {
 /// The parser tries to be as permissible as possible about the field formats because some NMEA
 /// encoders don't follow the standards strictly.
 #[derive(Clone)]
+#[cfg(not(feature = "multi-thread"))]
 pub struct NmeaParser {
     saved_fragments: HashMap<String, String>,
     saved_vsds: HashMap<u32, ais::VesselStaticData>,
+}
+
+/// NMEA sentence parser which keeps multi-sentence state between `parse_sentence` calls.
+/// The parser tries to be as permissible as possible about the field formats because some NMEA
+/// encoders don't follow the standards strictly.
+/// Replace HashMap with DashMap to provide multi-thread safety
+#[cfg(feature = "multi-thread")]
+pub struct NmeaParser {
+    saved_fragments: dashmap::DashMap<String, String>,
+    saved_vsds: dashmap::DashMap<u32, ais::VesselStaticData>,
 }
 
 impl Default for NmeaParser {
@@ -187,10 +198,21 @@ impl Default for NmeaParser {
 
 impl NmeaParser {
     /// Construct an empty parser which is ready to receive sentences.
+    #[cfg(not(feature = "multi-thread"))]
     pub fn new() -> NmeaParser {
         NmeaParser {
             saved_fragments: HashMap::new(),
             saved_vsds: HashMap::new(),
+        }
+    }
+
+    /// Construct an empty parser which is ready to receive sentences.
+    /// Replace HashMap with DashMap to provide multi-thread safety
+    #[cfg(feature = "multi-thread")]
+    pub fn new() -> NmeaParser {
+        NmeaParser {
+            saved_fragments: dashmap::DashMap::new(),
+            saved_vsds: dashmap::DashMap::new(),
         }
     }
 
@@ -207,8 +229,19 @@ impl NmeaParser {
     }
 
     /// Pull string-to-string mapping by key from store.
+    #[cfg(not(feature = "multi-thread"))]
     fn pull_string(&mut self, key: String) -> Option<String> {
         self.saved_fragments.remove(&key)
+    }
+    /// Pull string-to-string mapping by key from store.
+    /// dashmap's remove result is Option<K, V>
+    #[cfg(feature = "multi-thread")]
+    fn pull_string(&mut self, key: String) -> Option<String> {
+        if let Some((_, v)) = self.saved_fragments.remove(&key) {
+            Some(v)
+        } else {
+            None
+        }
     }
 
     /// Tests whether the given string-to-string mapping exists in the store.
@@ -227,8 +260,20 @@ impl NmeaParser {
     }
 
     /// Pull MMSI-to-VesselStaticData mapping from store.
+    #[cfg(not(feature = "multi-thread"))]
     fn pull_vsd(&mut self, mmsi: u32) -> Option<ais::VesselStaticData> {
         self.saved_vsds.remove(&mmsi)
+    }
+
+    /// Pull MMSI-to-VesselStaticData mapping from store.
+    /// dashmap's remove result is Option<K, V>
+    #[cfg(feature = "multi-thread")]
+    fn pull_vsd(&mut self, mmsi: u32) -> Option<ais::VesselStaticData> {
+        if let Some((_, v)) = self.saved_vsds.remove(&mmsi) {
+            Some(v)
+        } else {
+            None
+        }
     }
 
     /// Return number of MMSI-to-VesselStaticData mappings in store.
