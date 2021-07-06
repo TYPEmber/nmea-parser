@@ -57,11 +57,12 @@ pub use vdm_t22::{ChannelManagement};
 pub use vdm_t23::{GroupAssignmentCommand};
 pub use vdm_t25::{SingleSlotBinaryMessage};
 pub use vdm_t26::{MultipleSlotBinaryMessage};
-
+use serde::{Serialize, Deserialize};
+use chrono::serde::ts_seconds_option;
 // -------------------------------------------------------------------------------------------------
 
 /// AIS station based on talker id
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Station {
     BaseStation,             // !AB
     DependentAisBaseStation, // !AD
@@ -202,7 +203,7 @@ pub struct VesselDynamicData {
 }
 
 /// AIS class which is either Class A or Class B
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AisClass {
     /// AIS class not known.
     Unknown,
@@ -375,7 +376,7 @@ impl std::fmt::Display for RotDirection {
 // -------------------------------------------------------------------------------------------------
 
 /// Types 5 and 24: Ship static voyage related data, and boat static data report.
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VesselStaticData {
     /// True if the data is about own vessel, false if about other vessel.
     pub own_vessel: bool,
@@ -426,6 +427,7 @@ pub struct VesselStaticData {
     pub position_fix_type: Option<PositionFixType>,
 
     /// ETA (20 bits)
+    #[serde(with = "ts_seconds_option")]
     pub eta: Option<DateTime<Utc>>,
 
     /// Maximum present static draught in decimetres (1-255; 8 bits)
@@ -441,7 +443,7 @@ pub struct VesselStaticData {
 // -------------------------------------------------------------------------------------------------
 
 /// Ship type derived from combined ship and cargo type field
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ShipType {
     NotAvailable = 0,             // 0
     Reserved1 = 10,               // 1x
@@ -565,7 +567,7 @@ impl std::fmt::Display for ShipType {
 // -------------------------------------------------------------------------------------------------
 
 /// Cargo type derived from combined ship and cargo type field
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CargoType {
     Undefined = 10,          // x0
     HazardousCategoryA = 11, // x1
@@ -631,7 +633,7 @@ impl Default for CargoType {
 // -------------------------------------------------------------------------------------------------
 
 /// EPFD position fix types
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PositionFixType {
     Undefined = 0,                  // 0
     GPS = 1,                        // 1
