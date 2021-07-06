@@ -20,6 +20,8 @@ pub(crate) mod vdm_t1t2t3;
 pub(crate) mod vdm_t4;
 pub(crate) mod vdm_t5;
 pub(crate) mod vdm_t6;
+#[cfg(feature = "Chinese_binary_information")]
+pub(crate) mod vdm_t8;
 pub(crate) mod vdm_t9;
 pub(crate) mod vdm_t10;
 pub(crate) mod vdm_t11;
@@ -43,6 +45,10 @@ pub(crate) mod vdm_t27;
 use super::*;
 pub use vdm_t4::BaseStationReport;
 pub use vdm_t6::BinaryAddressedMessage;
+#[cfg(feature = "Chinese_binary_information")]
+pub use vdm_t6::ClimateCollection;
+#[cfg(feature = "Chinese_binary_information")]
+pub use vdm_t8::BinaryBroadcastMessage;
 pub use vdm_t9::StandardSarAircraftPositionReport;
 pub use vdm_t10::UtcDateInquiry;
 pub use vdm_t12::AddressedSafetyRelatedMessage;
