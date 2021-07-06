@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 use super::*;
-
+use chrono::offset::LocalResult;
 /// AIS VDM/VDO type 11: UTC/Date Response
 pub(crate) fn handle(
     bv: &BitVec,
@@ -27,18 +27,20 @@ pub(crate) fn handle(
         station: { station },
         mmsi: { pick_u64(&bv, 8, 30) as u32 },
         timestamp: {
-            Some(
-                Utc.ymd(
+            match Utc
+                .ymd_opt(
                     pick_u64(&bv, 38, 14) as i32,
                     pick_u64(&bv, 52, 4) as u32,
                     pick_u64(&bv, 56, 5) as u32,
                 )
-                .and_hms(
+                .and_hms_opt(
                     pick_u64(&bv, 61, 5) as u32,
                     pick_u64(&bv, 66, 6) as u32,
                     pick_u64(&bv, 72, 6) as u32,
-                ),
-            )
+                ) {
+                LocalResult::Single(res) => Some(res),
+                _ => None,
+            }
         },
         high_position_accuracy: { pick_u64(&bv, 78, 1) != 0 },
         latitude: {

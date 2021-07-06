@@ -23,7 +23,7 @@ pub(crate) fn handle(
 ) -> Result<ParsedMessage, ParseError> {
     Ok(ParsedMessage::VesselStaticData(VesselStaticData {
         own_vessel,
-        ais_type: AisClass::ClassB,
+        ais_type: AisClass::ClassA,
         mmsi: pick_u64(&bv, 8, 30) as u32,
         ais_version_indicator: pick_u64(&bv, 38, 2) as u8,
         imo_number: {
