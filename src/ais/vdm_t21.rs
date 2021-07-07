@@ -19,7 +19,8 @@ use super::*;
 // -------------------------------------------------------------------------------------------------
 
 /// Type 21: Aid-to-Navigation Report
-#[derive(Default, Clone, Debug, PartialEq)]
+#[cfg(feature = "serde_support")]
+#[derive(Default, Clone, Debug, PartialEq,Serialize, Deserialize)]
 pub struct AidToNavigationReport {
     /// True if the data is about own vessel, false if about other.
     pub own_vessel: bool,
@@ -81,6 +82,68 @@ pub struct AidToNavigationReport {
     pub assigned_mode_flag: bool,
 }
 
+#[cfg(not(feature = "serde_support"))]
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct AidToNavigationReport {
+    /// True if the data is about own vessel, false if about other.
+    pub own_vessel: bool,
+
+    /// AIS station type.
+    pub station: Station,
+
+    /// User ID (30 bits)
+    pub mmsi: u32,
+
+    /// Aid type (5 bits)
+    pub aid_type: NavAidType,
+
+    /// Name (120 bits)
+    pub name: String,
+
+    /// Position accuracy.
+    high_position_accuracy: bool,
+
+    /// Latitude
+    pub latitude: Option<f64>,
+
+    /// Longitude
+    pub longitude: Option<f64>,
+
+    /// Overall dimension / reference for position A (9 bits)
+    pub dimension_to_bow: Option<u16>,
+    /// Overall dimension / reference for position B (9 bits)
+    pub dimension_to_stern: Option<u16>,
+    /// Overall dimension / reference for position C (6 bits)
+    pub dimension_to_port: Option<u16>,
+    /// Overall dimension / reference for position C (6 bits)
+    pub dimension_to_starboard: Option<u16>,
+
+    // Type of electronic position fixing device.
+    pub position_fix_type: Option<PositionFixType>,
+
+    /// Derived from UTC second (6 bits)
+    pub timestamp_seconds: u8,
+
+    /// Off-position indicator (1 bit):
+    /// true = off position, false = on position
+    pub off_position_indicator: bool,
+
+    /// Regional reserved, uninterpreted.
+    pub regional: u8,
+
+    /// Riverine And Inland Navigation systems blue sign:
+    /// RAIM (Receiver autonomous integrity monitoring) flag of electronic position
+    /// fixing device; false = RAIM not in use = default; true = RAIM in use
+    pub raim_flag: bool,
+
+    /// Virtual aid flag:
+    /// true = virtual aid to navigation simulated by nearby AIS station
+    /// false = real aid to navigation at indicated position
+    pub virtual_aid_flag: bool,
+
+    /// Assigned-mode flag
+    pub assigned_mode_flag: bool,
+}
 impl LatLon for AidToNavigationReport {
     fn latitude(&self) -> Option<f64> {
         self.latitude
@@ -92,6 +155,7 @@ impl LatLon for AidToNavigationReport {
 }
 
 /// Type of navigation aid
+#[cfg(not(feature = "serde_support"))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NavAidType {
     /// Default, type not specified
@@ -191,6 +255,105 @@ pub enum NavAidType {
     LightVessel, // 31
 }
 
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum NavAidType {
+    /// Default, type not specified
+    NotSpecified, // 0
+
+    /// Reference point
+    ReferencePoint, // 1
+
+    /// RACON (radar transponder marking a navigation hazard)
+    Racon, // 2
+
+    /// Fixed structure off shore
+    FixedStructure, // 3
+
+    /// Reserved for future use.
+    Reserved4, // 4
+
+    /// Light without sectors
+    LightWithoutSectors, // 5
+
+    /// Light with sectors
+    LightWithSectors, // 6
+
+    /// Leading light front
+    LeadingLightFront, // 7
+
+    /// Leading light rear
+    LeadingLightRear, // 8
+
+    /// Beacon, Cardinal North
+    BeaconCardinalNorth, // 9
+
+    /// Beacon, Cardinal East
+    BeaconCardinalEast, // 10
+
+    /// Beacon, Cardinal South
+    BeaconCardinalSouth, // 11
+
+    /// Beacon, Cardinal West
+    BeaconCardinalWest, // 12
+
+    /// Beacon, Port
+    BeaconLateralPort, // 13
+
+    /// Beacon, Starboard
+    BeaconLateralStarboard, // 14
+
+    /// Beacon, preferred channel port
+    BeaconLateralPreferredChannelPort, // 15
+
+    /// Beacon, preferred channel starboard
+    BeaconLateralPreferredChannelStarboard, // 16
+
+    /// Beacon, isolated danger
+    BeaconIsolatedDanger, // 17
+
+    /// Beacon, safe water
+    BeaconSafeWater, // 18
+
+    /// Beacon, special mark
+    BeaconSpecialMark, // 19
+
+    /// Cardinal Mark, north
+    CardinalMarkNorth, // 20
+
+    /// Cardinal Mark, east
+    CardinalMarkEast, // 21
+
+    /// Cardinal Mark, south
+    CardinalMarkSouth, // 22
+
+    /// Cardinal Mark, west
+    CardinalMarkWest, // 23
+
+    /// Port hand mark
+    PortHandMark, // 24
+
+    /// Starboard hand mark
+    StarboardHandMark, // 25
+
+    /// Preferred channel, port
+    PreferredChannelPort, // 26
+
+    /// Preferred channel, starboard
+    PreferredChannelStarboard, // 27
+
+    /// Isolated danger
+    IsolatedDanger, // 28
+
+    /// Safe Water
+    SafeWater, // 29
+
+    /// Special mark
+    SpecialMark, // 30
+
+    /// Light vessel / LANBY / rigs
+    LightVessel, // 31
+}
 impl NavAidType {
     fn new(raw: u8) -> Result<NavAidType, ParseError> {
         match raw {

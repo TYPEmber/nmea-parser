@@ -20,6 +20,8 @@ pub(crate) mod vdm_t1t2t3;
 pub(crate) mod vdm_t4;
 pub(crate) mod vdm_t5;
 pub(crate) mod vdm_t6;
+#[cfg(feature = "Chinese_binary_information")]
+pub(crate) mod vdm_t8;
 pub(crate) mod vdm_t9;
 pub(crate) mod vdm_t10;
 pub(crate) mod vdm_t11;
@@ -43,6 +45,10 @@ pub(crate) mod vdm_t27;
 use super::*;
 pub use vdm_t4::BaseStationReport;
 pub use vdm_t6::BinaryAddressedMessage;
+#[cfg(feature = "Chinese_binary_information")]
+pub use vdm_t6::ClimateCollection;
+#[cfg(feature = "Chinese_binary_information")]
+pub use vdm_t8::BinaryBroadcastMessage;
 pub use vdm_t9::StandardSarAircraftPositionReport;
 pub use vdm_t10::UtcDateInquiry;
 pub use vdm_t12::AddressedSafetyRelatedMessage;
@@ -57,11 +63,13 @@ pub use vdm_t22::{ChannelManagement};
 pub use vdm_t23::{GroupAssignmentCommand};
 pub use vdm_t25::{SingleSlotBinaryMessage};
 pub use vdm_t26::{MultipleSlotBinaryMessage};
-
+use serde::{Serialize, Deserialize};
+use chrono::serde::ts_seconds_option;
 // -------------------------------------------------------------------------------------------------
 
 /// AIS station based on talker id
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Station {
     BaseStation,             // !AB
     DependentAisBaseStation, // !AD
@@ -74,6 +82,19 @@ pub enum Station {
     Other,                   // !BS, !SA, etc.
 }
 
+#[cfg(not(feature = "serde_support"))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Station {
+    BaseStation,             // !AB
+    DependentAisBaseStation, // !AD
+    MobileStation,           // !AI (the most common one)
+    AidToNavigationStation,  // !AN
+    AisReceivingStation,     // !AR
+    LimitedBaseStation,      // !AS
+    AisTransmittingStation,  // !AT
+    RepeaterStation,         // !AX
+    Other,                   // !BS, !SA, etc.
+}
 impl Default for Station {
     fn default() -> Station {
         Station::Other
@@ -202,7 +223,8 @@ pub struct VesselDynamicData {
 }
 
 /// AIS class which is either Class A or Class B
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AisClass {
     /// AIS class not known.
     Unknown,
@@ -214,6 +236,18 @@ pub enum AisClass {
     ClassB, // Message types 14, 18, 19, 24
 }
 
+#[cfg(not(feature = "serde_support"))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AisClass {
+    /// AIS class not known.
+    Unknown,
+
+    /// AIS class A.
+    ClassA, // Message types 1, 2, 3, 5
+
+    /// AIS class B.
+    ClassB, // Message types 14, 18, 19, 24
+}
 impl Default for AisClass {
     fn default() -> AisClass {
         AisClass::Unknown
@@ -321,6 +355,7 @@ impl Default for NavigationStatus {
 
 // -------------------------------------------------------------------------------------------------
 
+
 /// Location metadata about positioning system
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PositioningSystemMeta {
@@ -375,6 +410,72 @@ impl std::fmt::Display for RotDirection {
 // -------------------------------------------------------------------------------------------------
 
 /// Types 5 and 24: Ship static voyage related data, and boat static data report.
+#[cfg(feature = "serde_support")]
+#[derive(Default, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VesselStaticData {
+    /// True if the data is about own vessel, false if about other vessel.
+    pub own_vessel: bool,
+
+    /// Class A or Class B
+    pub ais_type: AisClass,
+
+    /// User ID (30 bits)
+    pub mmsi: u32,
+
+    /// AIS version indicator (2 bits)
+    pub ais_version_indicator: u8,
+
+    /// IMO number (1-999999999; 30 bits).
+    pub imo_number: Option<u32>,
+
+    /// Call sign (7 ASCII characters)
+    pub call_sign: Option<String>,
+
+    /// Name (20 ASCII characters)
+    pub name: Option<String>,
+
+    /// Type of ship (first 4 of 8 bits)
+    pub ship_type: ShipType,
+
+    /// Type of ship and cargo (last 4 of 8 bits)
+    pub cargo_type: CargoType,
+
+    /// Class B Vendor ID
+    pub equipment_vendor_id: Option<String>,
+
+    /// Class B unite model code
+    pub equipment_model: Option<u8>,
+
+    /// Class B serial number
+    pub equipment_serial_number: Option<u32>,
+
+    /// Overall dimension / reference for position A (9 bits)
+    pub dimension_to_bow: Option<u16>,
+    /// Overall dimension / reference for position B (9 bits)
+    pub dimension_to_stern: Option<u16>,
+    /// Overall dimension / reference for position C (6 bits)
+    pub dimension_to_port: Option<u16>,
+    /// Overall dimension / reference for position C (6 bits)
+    pub dimension_to_starboard: Option<u16>,
+
+    // Type of electronic position fixing device.
+    pub position_fix_type: Option<PositionFixType>,
+
+    /// ETA (20 bits)
+    #[serde(with = "ts_seconds_option")]
+    pub eta: Option<DateTime<Utc>>,
+
+    /// Maximum present static draught in decimetres (1-255; 8 bits)
+    pub draught10: Option<u8>,
+
+    /// Destination (120 ASCII characters)
+    pub destination: Option<String>,
+
+    /// Class B mothership MMSI
+    pub mothership_mmsi: Option<u32>,
+}
+/// Types 5 and 24: Ship static voyage related data, and boat static data report.
+#[cfg(not(feature = "serde_support"))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct VesselStaticData {
     /// True if the data is about own vessel, false if about other vessel.
@@ -437,11 +538,11 @@ pub struct VesselStaticData {
     /// Class B mothership MMSI
     pub mothership_mmsi: Option<u32>,
 }
-
 // -------------------------------------------------------------------------------------------------
 
 /// Ship type derived from combined ship and cargo type field
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ShipType {
     NotAvailable = 0,             // 0
     Reserved1 = 10,               // 1x
@@ -472,6 +573,7 @@ pub enum ShipType {
     Tanker = 80,                  // 8x
     Other = 90,                   // 9x
 }
+
 
 impl ShipType {
     /// Construct a new `ShipType` using the higher bits of the ship and cargo type field of NMEA.
@@ -562,9 +664,60 @@ impl std::fmt::Display for ShipType {
     }
 }
 
+
+/// Ship type derived from combined ship and cargo type field
+#[cfg(not(feature = "serde_support"))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ShipType {
+    NotAvailable = 0,             // 0
+    Reserved1 = 10,               // 1x
+    WingInGround = 20,            // 2x
+    Fishing = 30,                 // 30
+    Towing = 31,                  // 31
+    TowingLong = 32,              // 32; Towing: length exceeds 200m or breadth exceeds 25m
+    DredgingOrUnderwaterOps = 33, // 33
+    DivingOps = 34,               // 34
+    MilitaryOps = 35,             // 35
+    Sailing = 36,                 // 36
+    PleasureCraft = 37,           // 37
+    Reserved38 = 38,              // 38
+    Reserved39 = 39,              // 39
+    HighSpeedCraft = 40,          // 4x
+    Pilot = 50,                   // 50
+    SearchAndRescue = 51,         // 51
+    Tug = 52,                     // 52
+    PortTender = 53,              // 53
+    AntiPollutionEquipment = 54,  // 54
+    LawEnforcement = 55,          // 55
+    SpareLocal56 = 56,            // 56
+    SpareLocal57 = 57,            // 57
+    MedicalTransport = 58,        // 58
+    Noncombatant = 59,            // 59; Noncombatant ship according to RR Resolution No. 18
+    Passenger = 60,               // 6x
+    Cargo = 70,                   // 7x
+    Tanker = 80,                  // 8x
+    Other = 90,                   // 9x
+}
+
+
 // -------------------------------------------------------------------------------------------------
 
 /// Cargo type derived from combined ship and cargo type field
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CargoType {
+    Undefined = 10,          // x0
+    HazardousCategoryA = 11, // x1
+    HazardousCategoryB = 12, // x2
+    HazardousCategoryC = 13, // x3
+    HazardousCategoryD = 14, // x4
+    Reserved5 = 15,          // x5
+    Reserved6 = 16,          // x6
+    Reserved7 = 17,          // x7
+    Reserved8 = 18,          // x8
+    Reserved9 = 19,          // x9
+}
+#[cfg(not(feature = "serde_support"))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CargoType {
     Undefined = 10,          // x0
@@ -631,7 +784,8 @@ impl Default for CargoType {
 // -------------------------------------------------------------------------------------------------
 
 /// EPFD position fix types
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(feature = "serde_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PositionFixType {
     Undefined = 0,                  // 0
     GPS = 1,                        // 1
@@ -644,6 +798,19 @@ pub enum PositionFixType {
     Galileo = 8,                    // 8
 }
 
+#[cfg(not(feature = "serde_support"))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PositionFixType {
+    Undefined = 0,                  // 0
+    GPS = 1,                        // 1
+    GLONASS = 2,                    // 2
+    GPSGLONASS = 3,                 // 3
+    LoranC = 4,                     // 4
+    Chayka = 5,                     // 5
+    IntegratedNavigationSystem = 6, // 6
+    Surveyed = 7,                   // 7
+    Galileo = 8,                    // 8
+}
 impl PositionFixType {
     pub fn new(raw: u8) -> PositionFixType {
         match raw {

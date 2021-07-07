@@ -41,7 +41,7 @@ mod util;
 
 pub use error::ParseError;
 use util::*;
-
+use serde::{Serialize, Deserialize};
 // -------------------------------------------------------------------------------------------------
 
 /// Result from function `NmeaParser::parse_sentence()`. If the given sentence represents only a
@@ -68,7 +68,8 @@ pub enum ParsedMessage {
     //    BinaryAcknowledge(ais::BinaryAcknowledge),
     //
     //    /// AIS VDM/VDO type 8
-    //    BinaryBroadcastMessage(ais::BinaryBroadcastMessage),
+    #[cfg(feature = "Chinese_binary_information")]
+    BinaryBroadcastMessage(ais::BinaryBroadcastMessage),
 
     // AIS VDM/VDO type 9
     StandardSarAircraftPositionReport(ais::StandardSarAircraftPositionReport),
@@ -281,10 +282,461 @@ impl NmeaParser {
         self.saved_vsds.len()
     }
 
+    #[cfg(feature = "Chinese_binary_information")]
+    pub fn parse_sentence(&mut self, sentence: &str) -> Result<ParsedMessage, ParseError> {
+        // Calculace NMEA checksum and compare it to the given one. Also, remove the checksum part
+        // from the sentence to simplify next processing steps.
+        let mut checksum = 0;
+        let (sentence, checksum_hex_given) = {
+            if let Some(pos) = sentence.rfind('*') {
+                if pos + 3 <= sentence.len() {
+                    (
+                        sentence[0..pos].to_string(),
+                        sentence[(pos + 1)..(pos + 3)].to_string(),
+                    )
+                } else {
+                    debug!("Invalid checksum found for sentence: {}", sentence);
+                    (sentence[0..pos].to_string(), "".to_string())
+                }
+            } else {
+                debug!("No checksum found for sentence: {}", sentence);
+                (sentence.to_string(), "".to_string())
+            }
+        };
+        for c in sentence.as_str().chars().skip(1) {
+            checksum ^= c as u8;
+        }
+        let checksum_hex_calculated = format!("{:02X?}", checksum);
+        if checksum_hex_calculated != checksum_hex_given && checksum_hex_given != "" {
+            return Err(ParseError::CorruptedSentence(format!(
+                "Corrupted NMEA sentence: {:02X?} != {:02X?}",
+                checksum_hex_calculated, checksum_hex_given
+            )));
+        }
+
+        // Pick sentence type
+        let mut sentence_type: String = {
+            if let Some(i) = sentence.find(',') {
+                sentence[0..i].into()
+            } else {
+                return Err(ParseError::InvalidSentence(format!(
+                    "Invalid NMEA sentence: {}",
+                    sentence
+                )));
+            }
+        };
+
+        // Identify GNSS system by talker ID.
+        let nav_system = {
+            if &sentence_type[0..1] == "$" {
+                match &sentence_type[1..3] {
+                    "GN" => Some(gnss::NavigationSystem::Combination),
+                    "GP" => Some(gnss::NavigationSystem::Gps),
+                    "GL" => Some(gnss::NavigationSystem::Glonass),
+                    "GA" => Some(gnss::NavigationSystem::Galileo),
+                    "BD" => Some(gnss::NavigationSystem::Beidou),
+                    "GI" => Some(gnss::NavigationSystem::Navic),
+                    "QZ" => Some(gnss::NavigationSystem::Qzss),
+                    _ => Some(gnss::NavigationSystem::Other),
+                }
+            } else {
+                None
+            }
+        };
+        if nav_system != None {
+            // Shorten the GNSS setence types to three letters
+            if sentence_type.len() <= 6 {
+                sentence_type = format!("${}", &sentence_type[3..6]);
+            }
+        }
+
+        // Identify AIS station
+        let station = {
+            if &sentence_type[0..1] == "!" {
+                match &sentence_type[1..3] {
+                    "AB" => Some(ais::Station::BaseStation),
+                    "AD" => Some(ais::Station::DependentAisBaseStation),
+                    "AI" => Some(ais::Station::MobileStation),
+                    "AN" => Some(ais::Station::AidToNavigationStation),
+                    "AR" => Some(ais::Station::AisReceivingStation),
+                    "AS" => Some(ais::Station::LimitedBaseStation),
+                    "AT" => Some(ais::Station::AisTransmittingStation),
+                    "AX" => Some(ais::Station::RepeaterStation),
+                    _ => Some(ais::Station::Other),
+                }
+            } else {
+                None
+            }
+        };
+        if station != None {
+            // Shorten the AIS setence types to three letters
+            if sentence_type.len() <= 6 {
+                sentence_type = format!("!{}", &sentence_type[3..6]);
+            }
+        }
+
+        // Handle sentence types
+        match sentence_type.as_str() {
+            // $xxGGA - Global Positioning System Fix Data
+            "$GGA" => gnss::gga::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxRMC - Recommended minimum specific GPS/Transit data
+            "$RMC" => gnss::rmc::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxGNS - GNSS fix data
+            "$GNS" => gnss::gns::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxGSA - GPS DOP and active satellites
+            "$GSA" => gnss::gsa::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxGSV - GPS Satellites in view
+            "$GSV" => gnss::gsv::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+                self,
+            ),
+            // $xxVTG - Track made good and ground speed
+            "$VTG" => gnss::vtg::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxGLL - Geographic position, latitude / longitude
+            "$GLL" => gnss::gll::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxALM - Almanac Data
+            "$ALM" => gnss::alm::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxDTM - Datum reference
+            "$DTM" => gnss::dtm::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxMSS - MSK receiver signal
+            "$MSS" => gnss::mss::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxSTN - Multiple Data ID
+            "$STN" => gnss::stn::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxVBW - MSK Receiver Signal
+            "$VBW" => gnss::vbw::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+            // $xxZDA - Date and time
+            "$ZDA" => gnss::zda::handle(
+                sentence.as_str(),
+                nav_system.unwrap_or(gnss::NavigationSystem::Other),
+            ),
+
+            // Received AIS data from other or own vessel
+            "!VDM" | "!VDO" => {
+                let own_vessel = sentence_type.as_str() == "!VDO";
+                let mut fragment_count = 0;
+                let mut fragment_number = 0;
+                let mut message_id = None;
+                let mut radio_channel_code = None;
+                let mut payload_string: String = "".into();
+                for (num, s) in sentence.split(',').enumerate() {
+                    match num {
+                        1 => {
+                            match s.parse::<u8>() {
+                                Ok(i) => {
+                                    fragment_count = i;
+                                }
+                                Err(_) => {
+                                    return Err(ParseError::InvalidSentence(format!(
+                                        "Failed to parse fragment count: {}",
+                                        s
+                                    )));
+                                }
+                            };
+                        }
+                        2 => {
+                            match s.parse::<u8>() {
+                                Ok(i) => {
+                                    fragment_number = i;
+                                }
+                                Err(_) => {
+                                    return Err(ParseError::InvalidSentence(format!(
+                                        "Failed to parse fragment count: {}",
+                                        s
+                                    )));
+                                }
+                            };
+                        }
+                        3 => {
+                            message_id = s.parse::<u64>().ok();
+                        }
+                        4 => {
+                            // Radio channel code
+                            radio_channel_code = Some(s);
+                        }
+                        5 => {
+                            payload_string = s.to_string();
+                        }
+                        6 => {
+                            // fill bits
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Try parse the payload
+                let mut bv: Option<BitVec> = None;
+                if fragment_count == 1 {
+                    bv = parse_payload(&payload_string).ok();
+                } else if fragment_count == 2 {
+                    if let Some(msg_id) = message_id {
+                        let key1 = make_fragment_key(
+                            &sentence_type.to_string(),
+                            msg_id,
+                            fragment_count,
+                            1,
+                            radio_channel_code.unwrap_or(""),
+                        );
+                        let key2 = make_fragment_key(
+                            &sentence_type.to_string(),
+                            msg_id,
+                            fragment_count,
+                            2,
+                            radio_channel_code.unwrap_or(""),
+                        );
+                        if fragment_number == 1 {
+                            if let Some(p) = self.pull_string(key2) {
+                                let mut payload_string_combined = payload_string;
+                                payload_string_combined.push_str(p.as_str());
+                                bv = parse_payload(&payload_string_combined).ok();
+                            } else {
+                                self.push_string(key1, payload_string);
+                            }
+                        } else if fragment_number == 2 {
+                            if let Some(p) = self.pull_string(key1) {
+                                let mut payload_string_combined = p;
+                                payload_string_combined.push_str(payload_string.as_str());
+                                bv = parse_payload(&payload_string_combined).ok();
+                            } else {
+                                self.push_string(key2, payload_string);
+                            }
+                        } else {
+                            warn!(
+                                "Unexpected NMEA fragment number: {}/{}",
+                                fragment_number, fragment_count
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "NMEA message_id missing from {} than supported 2",
+                            sentence_type
+                        );
+                    }
+                } else {
+                    warn!(
+                        "NMEA sentence fragment count greater ({}) than supported 2",
+                        fragment_count
+                    );
+                }
+
+                if let Some(bv) = bv {
+                    let message_type = pick_u64(&bv, 0, 6);
+                    match message_type {
+                        // Position report with SOTDMA/ITDMA
+                        1 | 2 | 3 => ais::vdm_t1t2t3::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Base station report
+                        4 => ais::vdm_t4::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Ship static voyage related data
+                        5 => ais::vdm_t5::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Addressed binary message
+                        6 => ais::vdm_t6::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Binary acknowledge
+                        7 => {
+                            // TODO: implementation
+                            Err(ParseError::UnsupportedSentenceType(format!(
+                                "Unsupported {} message type: {}",
+                                sentence_type, message_type
+                            )))
+                        }
+                        // Binary broadcast message
+                        8 => {
+                            ais::vdm_t8::handle(
+                                &bv,
+                                station.unwrap_or(ais::Station::Other),
+                                own_vessel,
+                            )
+                            // TODO: implementation
+                            // Err(ParseError::UnsupportedSentenceType(format!(
+                            //   "Unsupported {} message type: {}",
+                            //    sentence_type, message_type
+                            //)))
+                        }
+                        // Standard SAR aircraft position report
+                        9 => ais::vdm_t9::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // UTC and Date inquiry
+                        10 => ais::vdm_t10::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // UTC and date response
+                        11 => ais::vdm_t11::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+
+                        // Addressed safety related message
+                        12 => ais::vdm_t12::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Safety related acknowledge
+                        13 => ais::vdm_t13::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Safety related broadcast message
+                        14 => ais::vdm_t14::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Interrogation
+                        15 => ais::vdm_t15::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Assigned mode command
+                        16 => ais::vdm_t16::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // GNSS binary broadcast message
+                        17 => ais::vdm_t17::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Standard class B CS position report
+                        18 => ais::vdm_t18::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Extended class B equipment position report
+                        19 => ais::vdm_t19::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Data link management
+                        20 => ais::vdm_t20::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Aids-to-navigation report
+                        21 => ais::vdm_t21::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Channel management
+                        22 => ais::vdm_t22::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Group assignment command
+                        23 => ais::vdm_t23::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Class B CS static data report
+                        24 => ais::vdm_t24::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            self,
+                            own_vessel,
+                        ),
+                        // Single slot binary message
+                        25 => ais::vdm_t25::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Multiple slot binary message
+                        26 => ais::vdm_t26::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        // Long range AIS broadcast message
+                        27 => ais::vdm_t27::handle(
+                            &bv,
+                            station.unwrap_or(ais::Station::Other),
+                            own_vessel,
+                        ),
+                        _ => Err(ParseError::UnsupportedSentenceType(format!(
+                            "Unsupported {} message type: {}",
+                            sentence_type, message_type
+                        ))),
+                    }
+                } else {
+                    Ok(ParsedMessage::Incomplete)
+                }
+            }
+            _ => Err(ParseError::UnsupportedSentenceType(format!(
+                "Unsupported sentence type: {}",
+                sentence_type
+            ))),
+        }
+    }
+
     /// Parse NMEA sentence into `ParsedMessage` enum. If the given sentence is part of
     /// a multipart message the related state is saved into the parser and
     /// `ParsedMessage::Incomplete` is returned. The actual result is returned when all the parts
     /// have been sent to the parser.
+    #[cfg(not(feature = "Chinese_binary_information"))]
     pub fn parse_sentence(&mut self, sentence: &str) -> Result<ParsedMessage, ParseError> {
         // Calculace NMEA checksum and compare it to the given one. Also, remove the checksum part
         // from the sentence to simplify next processing steps.
