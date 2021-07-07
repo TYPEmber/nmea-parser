@@ -16,6 +16,7 @@ edition       = "2018"
 [features]
 multi-thread = ["dashmap"]
 Chinese_binary_information =[]
+serde_support =[]
 
 [dependencies]
 bitvec     = "0.21.1"
